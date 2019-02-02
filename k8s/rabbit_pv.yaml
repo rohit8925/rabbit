@@ -1,0 +1,43 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: rabbittestbackup-0
+spec:
+  capacity:
+    storage: 30Gi
+  accessModes:
+    - ReadWriteOnce
+  nfs:
+
+    server: 10.214.119.71
+    path: "/scratch/k8s/odr-sandeep/rabbitbackup-0"
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: rabbittestbackup-1
+spec:
+  capacity:
+    storage: 30Gi
+  accessModes:
+    - ReadWriteOnce
+  nfs:
+
+    server: 10.214.119.71
+    path: "/scratch/k8s/odr-sandeep/rabbitbackup-1"
+
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: rabbittestbackup-2
+spec:
+  capacity:
+    storage: 30Gi
+  accessModes:
+    - ReadWriteOnce
+  nfs:
+
+    server: 10.214.119.71
+    path: "/scratch/k8s/odr-sandeep/rabbitbackup-2"
+

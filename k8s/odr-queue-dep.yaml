@@ -1,0 +1,208 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: odr-queue-cm-18-3
+  labels:
+    name: odr-queue-cm
+    version: "18-3"
+data:
+  rabbitmq.conf: |+
+     loopback_users.guest = false
+     listeners.tcp.default = 5672
+     default_pass = guest
+     default_user = guest
+     hipe_compile = false
+     cluster_partition_handling = autoheal
+
+     ssl_options.cacertfile = /etc/rabbitmq/testca/cacert.pem
+     ssl_options.certfile = /etc/rabbitmq/server/cert.pem
+     ssl_options.keyfile = /etc/rabbitmq/server/key.pem
+     ssl_options.verify = verify_peer
+     ssl_options.fail_if_no_peer_cert = false
+
+     cluster_formation.peer_discovery_backend = rabbit_peer_discovery_classic_config
+     cluster_formation.classic_config.nodes.1 = rabbit@odr-queue-pod-18-3-0.odr-queue-dep-18-3.odr-rohit.svc.cluster.local
+     cluster_formation.classic_config.nodes.2 = rabbit@odr-queue-pod-18-3-1.odr-queue-dep-18-3.odr-rohit.svc.cluster.local
+     cluster_formation.classic_config.nodes.3 = rabbit@odr-queue-pod-18-3-2.odr-queue-dep-18-3.odr-rohit.svc.cluster.local
+
+     log.console = false
+     log.dir = /var/log/rabbitmq
+     log.file = rabbit.log
+     log.file.level = info
+     log.exchange = true
+     log.exchange.level = info
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: odr-queue-svc-18-3
+  labels:
+    name: odr-queue-svc
+    version: "18-3"
+spec:
+  clusterIP: None
+  selector:
+    name: odr-queue
+    version: "18-3"
+  ports:
+    - name: queue-port
+      port: 5672
+    - name: cluster-port
+      port: 4369
+    - name: dist-port
+      port: 25672
+
+---
+kind: "Service"
+apiVersion: v1
+metadata:
+  name: odr-queue-svc-mgmt-18-3
+spec:
+  type: NodePort
+  selector:
+    name: odr-queue
+    version: "18-3"
+  sessionAffinity: ClientIP
+  ports:
+    - name: management-console
+      port: 15672
+
+---
+apiVersion: apps/v1beta1
+kind: StatefulSet
+metadata:
+  name: odr-queue-dep-18-3
+spec:
+  serviceName: odr-queue-svc-18-3
+  replicas: 3
+  template:
+    metadata:
+      labels:
+        app: odr
+        name: odr-queue
+        version: "18-3"
+    spec:
+      terminationGracePeriodSeconds: 10
+      volumes:
+      - name: ost-logs
+        emptyDir: {}
+      - name: scratch-misc
+        emptyDir: {}
+      - name: rabbitmqconf
+        configMap:
+          name: odr-queue-cm-18-3
+          items:
+          - key: rabbitmq.conf
+            path: rabbitmq.conf
+
+      containers:
+      - name: odr-queue-pod-18-3
+        image: cne-repos1.us.oracle.com:7744/apps/ugbu/odr/common/keep/odr-sandeep/odr-rmq:18.3a6
+        imagePullPolicy: Always
+        resources:
+          requests:
+            cpu: 500m
+            memory: 500Mi
+          limits:
+            cpu: 1000m
+            memory: 1536Mi
+        ports:
+          - name: queue-port
+            containerPort: 5672
+          - name: management-port
+            containerPort: 15672
+          - name: cluster-port
+            containerPort: 4369
+          - name: dist-port
+            containerPort: 25672
+        env:
+          - name: RABBITMQ_USER
+            value: guest
+          - name: RABBITMQ_PASS
+            value: "guest"
+          - name: RABBITMQ_ERLANG_COOKIE
+            value: "odrdatarakercookie"
+          - name: RABBITMQ_USE_LONGNAME
+            value: "true"
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name
+          - name: NODE_NAME
+            value: "$(POD_NAME).odr-queue-dep-18-3.odr-rohit.svc.cluster.local"
+          - name: RABBITMQ_NODENAME
+            value: rabbit
+
+#        livenessProbe:
+#          exec:
+#            command: ["/bin/sh", "-c", "/ugbu-server/temp/probe-script/rabbitLive.sh"]
+#          initialDelaySeconds: 60
+#          periodSeconds: 20
+#          timeoutSeconds: 10
+        readinessProbe:
+          exec:
+            command: ["true"]
+           # - /bin/bash
+          initialDelaySeconds: 60
+          timeoutSeconds: 10
+#          exec:
+#            command: ["/bin/sh", "-c", "/ugbu-server/temp/probe-script/rabbitLive.sh"]
+#          initialDelaySeconds: 60
+#          periodSeconds: 20
+#          timeoutSeconds: 10
+#        command: ["/bin/sh", "-c", "/usr/sbin/rabbitmq-server"]
+
+        volumeMounts:
+        - name: odr-queue-pvc-18-3
+          mountPath: /var/lib/rabbitmq
+          readOnly: false
+        - name: rabbitmqconf
+          mountPath: /etc/rabbitmq
+          readOnly: false
+        - name: scratch-misc
+          mountPath: "/ugbu-server/temp"
+#        - name: rabbitmq
+#          mountPath: /var/lib/rabbitmq
+          readOnly: false
+        - name: ost-logs
+          mountPath: /var/log/rabbitmq
+
+     # volumes:
+     # - name: rabbitmqconf
+     #   configMap:
+     #     name: odr-queue-cm-18-3
+     #     items:
+     #     - key: rabbitmq.conf
+     #       path: rabbitmq.conf
+
+      - name: rabbit-ost
+        image: cne-repos1.us.oracle.com:7744/apps/ugbu/odr/common/keep/odr-sandeep/odr-rmq-ost:18.3
+        imagePullPolicy: Always
+        volumeMounts:
+        - name: ost-logs
+          mountPath: /ugbu-server/service/log/rabbitmq
+
+      initContainers:
+      - name: init-rabbit
+        image: "cne-repos1.us.oracle.com:7744/apps/ugbu/odr/common/keep/odr-init-img:3.0"
+        command: ["/bin/sh", "-c"]
+        args:
+          - wget http://rwsaa068.us.oracle.com/containers/CNE_Project/Docker_bin/odr-init/odr-sandeep/odr-probe-scripts.zip -P /tmp/;
+            unzip /tmp/odr-probe-scripts.zip -d "/etc/misc/";
+        volumeMounts:
+        - name: scratch-misc
+          mountPath: "/etc/misc"
+
+  volumeClaimTemplates:
+  - metadata:
+      name: odr-queue-pvc-18-3
+      labels:
+        name: odr-queue-pvc
+        version: "18-3"
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      resources:
+        requests:
+          storage: 30Gi
+
